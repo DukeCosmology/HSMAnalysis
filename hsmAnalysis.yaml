@@ -1,0 +1,349 @@
+variables :
+    - &input_g1  -0.027               
+    - &input_g2  0.031              
+
+modules:
+    - shapeDataModule
+    - file_cleaner
+
+input:
+    cosmos_catalog :
+        # If the command galsim_download_cosmos has been run for the F814W<25.2 sample,
+        # the catalog will have been downloaded from the GalSim web site and saved in a
+        # directory that GalSim knows about.
+        # So file_name and dir are not necessary, and we don't even need to set sample
+        # to 25.2, since that's the default.  But in the interest of being explicit...
+        sample: 25.2
+
+image:
+    size: 256          
+    pixel_scale: 0.2     # Pixel scale in arcsec/pixel
+    
+stamp:
+    gsparams:
+        maximum_fft_size: 
+            type: Eval
+            str: '24 * 4096'
+
+gal:
+    type: List
+    items:
+    
+        -
+            # Non-sheared COSMOS Galaxy 
+            type: COSMOSGalaxy
+            gal_type: parametric
+            index: 
+                type: Sequence
+                #first: 0
+                last: 5000
+                #repeat: 10
+
+        -
+            # Sheared COSMOS Galaxy
+            type: COSMOSGalaxy
+            gal_type: parametric
+            index: 
+                type: Sequence
+                #first: 0
+                last: 5000
+            shear:
+                type: GBeta 
+                g: 0.5
+                    #type: Sequence
+                    #first: 0.0
+                    #last: 0.5
+                    #step: 0.1
+                    #repeat: 5000
+                
+                beta: {type : Random}
+                
+                #type: G1G2 
+                g1: *input_g1
+                g2: *input_g2
+                
+        -
+            # Sheared Random Gaussian.
+            type : Gaussian
+
+            #sigma : { type : Random , min : 1 , max : 4 } # arcsec
+            #flux : { type : Random , min : 1.e4 , max : 1.e5 }
+            sigma:
+                type: RandomGaussian
+                mean: 2.5
+                sigma : 0.5
+                min : 0
+                #max : 4
+                #type: Sequence
+                #first: 0.001
+                #step: 0.001
+                #last: 0.2
+            
+            flux:
+                type: RandomGaussian
+                mean: 5.e4
+                sigma: 2.e4
+                min: 0
+                #max: 1.e5
+            
+            ellip :
+                type : GBeta #G1G2
+                g: 0.2
+                #e : { type : Random , min : 0.0 , max : 0.6 }
+                beta : { type : Random }
+                #g1:
+                    #type: RandomGaussian
+                    #mean: 0.03
+                    #sigma: 0.02
+                    #min: 0.0
+                    #max: 0.6
+                
+                #g2:
+                    #type: RandomGaussian
+                    #mean: 0.04
+                    #sigma: 0.01
+            
+            shear:
+                type: GBeta #G1G2 
+                g: 0.5
+                    #type: Sequence
+                    #first: 0.0
+                    #last: 0.5
+                    #step: 0.1
+                    #repeat: 3000
+                
+                beta: {type : Random}
+                
+                #g1: *input_g1
+                #g2: *input_g2
+            
+                
+
+    
+psf:
+    type: List
+    items:
+    -
+        # HST PSF
+        type: OpticalPSF
+        lam: 1000
+        diam: 2.4
+    
+    -
+        # LSST PSF
+        type : Convolution  # The PSF is a convolution of the atmospheric seeing and
+                        # an optical PSF
+        items:
+            - # The atmospheric seeing follows a Kolmogorov spectrum
+                type : Kolmogorov
+                fwhm : 0.7
+            - # The optical component models the effect of the telescope.
+                type : OpticalPSF
+                lam_over_diam : 0.017     # (700 nm / 8.4 m) * 206265 = 0.017 arcsec
+                obscuration : 0.4         # The linear obscuration.  3.4m/8.4m = 0.4
+                nstruts : 4               # LSST has 4 supports, although each is actually
+                                          # two bars, so this isn't quite right.
+                strut_thick : 0.03        # The size relative to the diam.
+                                          # 25 cm in this case.
+                strut_angle : 10 degrees  # Arbitrary, but intentionally not aligned with
+                                          # the axes of the image.
+
+                aberrations:
+                # This should be a list of coefficients in the Noll index convention
+                # starting with index 4.
+                    - 0.06   # Noll index 4 = Defocus
+                    - 0.02   # Noll index 5,6 = Astigmatism
+                    - -0.03
+                    - 0.02   # Noll index 7,8 = Coma
+                    - -0.04
+                    - 0.0    # Noll index 9,10 = Trefoil -- unused here
+                    - 0.0
+                    - 0.0  # Noll index 11 = Spherical
+        
+                
+---
+
+# Cleaning the output directory
+# Needs to be the first step to obtain the data in a correct output format
+output:
+    type: FileCleaner
+    dir: output_yaml
+
+
+---
+## Need to write down the PSF images only during the first instance of use a particular PSF
+## Convolving sheared random gaussian with HST PSF
+
+gal:
+   index: 2
+
+psf: 
+   index: 0
+
+output:
+   psf:
+       dir: output_yaml
+       file_name: psf_hst.fits
+   type: DataCube
+   dir: output_yaml
+   file_name: gaussian_hst.fits
+   nimages: 5000
+   HSMShapeData: 
+       dir: output_yaml
+       file_name: shapeData.h5
+       # Need to specify the order of entries in the 'psf' and 'gal' list defined above
+       # The names in the list would also be used as tags for the keys in the output
+       # The tags that are valid currently are:
+       # Galaxies:
+       # 'COSMOS': for COSMOS galaxies, "Gaussian": for Gaussian Galaxies
+       # An extra "_SH" is added if the galaxy is sheared
+       # PSFs:
+       # 'HST' for HST PSF, 'LSST' for LSST PSF
+       # This would probably be changed later to something that is more flexible/versatile.
+       gal_tags: ['COSMOS', 'COSMOS_SH', 'Gaussian']
+       psf_tags: ['HST', 'LSST']
+
+---
+
+# Convolving sheared random gaussian with LSST PSF
+
+gal:
+  index: 2
+  #Flux Scaling for LSST
+  #scale factor = (LSST diam)^2/(HST diam)^2 * Exposure Time for LSST
+  scale_flux:
+      type: Eval
+      str: '((8.4**2) / (2.4**2)) * 16'
+
+psf: 
+   index: 1
+
+output:
+   psf:
+       dir: output_yaml
+       file_name: psf_lsst.fits
+   type: DataCube
+   dir: output_yaml
+   file_name: gaussian_lsst.fits
+   nimages: 5000
+   HSMShapeData: 
+       dir: output_yaml
+       file_name: shapeData.h5
+       # Need to specify the order of entries in the 'psf' and 'gal' list defined above
+       # The names in the list would also be used as tags for the keys in the output
+       gal_tags: ['COSMOS', 'COSMOS_SH', 'Gaussian']
+       psf_tags: ['HST', 'LSST']
+    
+
+
+---
+
+#Convolving Non-sheared COSMOS galaxies with HST PSF
+
+#gal:
+  index: 0
+
+psf: 
+  index: 0
+
+output:
+  type: DataCube
+  dir: output_yaml
+  file_name: cosmos_hst.fits
+  nimages: 20
+  HSMShapeData: 
+      dir: output_yaml
+      file_name: shapeData.h5
+      # Need to specify the order of entries in the 'psf' and 'gal' list defined above
+      # The names in the list would also be used as tags for the keys in the output
+      gal_tags: ['COSMOS', 'COSMOS_SH', 'Gaussian']
+      psf_tags: ['HST', 'LSST']
+
+
+---
+
+# Convolving Sheared COSMOS galaxies with HST PSF
+
+gal:
+  index: 1
+
+psf: 
+  index: 0
+
+output:
+  type: DataCube
+  dir: output_yaml
+  file_name: cosmos_sh_hst.fits
+  nimages: 20
+  HSMShapeData: 
+      dir: output_yaml
+      file_name: shapeData.h5
+      # Need to specify the order of entries in the 'psf' and 'gal' list defined above
+      # The names in the list would also be used as tags for the keys in the output
+      gal_tags: ['COSMOS', 'COSMOS_SH', 'Gaussian']
+      psf_tags: ['HST', 'LSST']
+
+---
+
+#Convolving Non-sheared COSMOS galaxies with LSST PSF
+
+gal:
+  index: 0
+  scale_flux:
+      type: Eval
+      str: '((8.4**2) / (2.4**2)) * 16'
+
+psf: 
+  index: 1
+
+output:
+  type: DataCube
+  dir: output_yaml
+  file_name: cosmos_lsst.fits
+  nfiles: 100
+  nimages: 5000
+  skip : { type : Eval, str : 'file_num % 100 != 0' }
+  nproc: -1
+  HSMShapeData: 
+      dir: output_yaml
+      file_name: shapeData.h5
+      #Need to specify the order of entries in the 'psf' and 'gal' list defined above
+      #The names in the list would also be used as tags for the keys in the output
+      gal_tags: ['COSMOS', 'COSMOS_SH', 'Gaussian']
+      psf_tags: ['HST', 'LSST']
+  
+---
+
+Convolving Sheared COSMOS galaxies with LSST PSF
+
+gal:
+  index: 1
+  scale_flux:
+      type: Eval
+      str: '((8.4**2) / (2.4**2)) * 16'
+
+psf: 
+  index: 1
+
+output:
+  type: DataCube
+  dir: output_yaml
+  file_name: cosmos_sh_lsst.fits
+  nfiles: 1000
+  nimages: 5000
+  skip : { type : Eval, str : 'file_num % 100 != 0' }
+  nproc: -1
+  HSMShapeData: 
+      dir: output_yaml
+      file_name: shapeData.h5
+      #Need to specify the order of entries in the 'psf' and 'gal' list defined above
+      #The names in the list would also be used as tags for the keys in the output
+      gal_tags: ['COSMOS', 'COSMOS_SH', 'Gaussian']
+      psf_tags: ['HST', 'LSST']
+
+
+
+
+
+
+
